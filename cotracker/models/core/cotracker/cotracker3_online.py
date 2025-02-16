@@ -50,6 +50,7 @@ class CoTrackerThreeBase(nn.Module):
         model_resolution=(384, 512),
         add_space_attn=True,
         linear_layer_for_vis_conf=True,
+        with_svd_projection=False,
     ):
         super(CoTrackerThreeBase, self).__init__()
         self.window_len = window_len
@@ -58,7 +59,7 @@ class CoTrackerThreeBase(nn.Module):
         self.corr_levels = corr_levels
         self.hidden_dim = 256
         self.latent_dim = 128
-
+        self.with_svd_projection = with_svd_projection
         self.linear_layer_for_vis_conf = linear_layer_for_vis_conf
         self.fnet = BasicEncoder(input_dim=3, output_dim=self.latent_dim, stride=stride)
 

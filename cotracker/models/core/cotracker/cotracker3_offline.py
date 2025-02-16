@@ -11,6 +11,47 @@ from cotracker.models.core.cotracker.cotracker3_online import CoTrackerThreeBase
 
 torch.manual_seed(0)
 
+def project_points(coords):
+    """
+    Projects each 2D point onto the best-fit line for that frame.
+    Parameters:
+    -----------
+    data : torch.Tensor
+        A tensor of shape (B, T, N, 2) where:
+          - B is the batch size,
+          - T is the number of time samples,
+          - N is the number of points per sample,
+          - 2 corresponds to the (x, y) coordinates of each point.
+    Returns:
+    --------
+    torch.Tensor
+        A tensor of shape (B, T, N, 2) containing the projected points.
+    """
+    B, T, N, D = coords.shape
+    # Reshape to combine batch and time: [B*T, N, D]
+    coords_flat = coords.reshape(B * T, N, D)
+    
+    # Compute the mean and center the data
+    mean = coords_flat.mean(dim=1, keepdim=True)    # shape: [B*T, 1, D]
+    centered = coords_flat - mean                   # shape: [B*T, N, D]
+    
+    # Perform SVD on the centered data (differentiable) -> U: [B*T, N, D], S: [B*T, D], V: [B*T, D, D]
+    U, S, Vh = torch.linalg.svd(centered, full_matrices=False)
+    v = Vh[:,0,:] # v has shape (B*T, 2) and is a unit vector representing the best-fit line direction.
+    
+    # Compute the scalar projection of each point onto v.
+    proj_scalar = (centered * v.unsqueeze(1)).sum(dim=-1)  # Shape: (B*T, N)
+
+    # Multiply the scalar projections by the direction vector to get the projected vectors.
+    proj_vectors = proj_scalar.unsqueeze(-1) * v.unsqueeze(1)  # Shape: (B*T, N, 2)
+
+    # Add the mean back to obtain the final projected points.
+    projected_points = mean + proj_vectors  # Shape: (B*T, N, 2)
+
+    # Reshape back to the original shape: [B, T, N, D]
+    projected_points = projected_points.reshape(B, T, N, D)
+    
+    return projected_points
 
 class CoTrackerThreeOffline(CoTrackerThreeBase):
     def __init__(self, **args):
@@ -209,6 +250,8 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             confidence = confidence + delta_confidence
 
             coords = coords + delta_coords
+            if self.with_svd_projection:
+                coords = project_points(coords)
             coords_append = coords.clone()
             coords_append[..., :2] = coords_append[..., :2] * float(self.stride)
             coord_preds.append(coords_append)
