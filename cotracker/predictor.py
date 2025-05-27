@@ -20,6 +20,7 @@ class CoTrackerPredictor(torch.nn.Module):
         window_len=60,
     ):
         super().__init__()
+        self.v2 = v2
         self.support_grid_size = 6
         model = build_cotracker(
             checkpoint,
@@ -46,6 +47,7 @@ class CoTrackerPredictor(torch.nn.Module):
         grid_size: int = 0,
         grid_query_frame: int = 0,  # only for dense and regular grid tracks
         backward_tracking: bool = False,
+        add_support_grid: bool = True,
     ):
         if queries is None and grid_size == 0:
             tracks, visibilities = self._compute_dense_tracks(
@@ -59,7 +61,7 @@ class CoTrackerPredictor(torch.nn.Module):
                 queries,
                 segm_mask,
                 grid_size,
-                add_support_grid=(grid_size == 0 or segm_mask is not None),
+                add_support_grid=add_support_grid,
                 grid_query_frame=grid_query_frame,
                 backward_tracking=backward_tracking,
             )
@@ -74,16 +76,16 @@ class CoTrackerPredictor(torch.nn.Module):
         grid_width = W // grid_step
         grid_height = H // grid_step
         tracks = visibilities = None
-        grid_pts = torch.zeros((1, grid_width * grid_height, 3)).to(video.device)
-        grid_pts[0, :, 0] = grid_query_frame
+        grid_pts = torch.zeros((video.shape[0], grid_width * grid_height, 3)).to(video.device)
+        grid_pts[:, :, 0] = grid_query_frame
         for offset in range(grid_step * grid_step):
             print(f"step {offset} / {grid_step * grid_step}")
             ox = offset % grid_step
             oy = offset // grid_step
-            grid_pts[0, :, 1] = (
+            grid_pts[:, :, 1] = (
                 torch.arange(grid_width).repeat(grid_height) * grid_step + ox
             )
-            grid_pts[0, :, 2] = (
+            grid_pts[:, :, 2] = (
                 torch.arange(grid_height).repeat_interleave(grid_width) * grid_step + oy
             )
             tracks_step, visibilities_step = self._compute_sparse_tracks(
@@ -153,7 +155,7 @@ class CoTrackerPredictor(torch.nn.Module):
             grid_pts = grid_pts.repeat(B, 1, 1)
             queries = torch.cat([queries, grid_pts], dim=1)
 
-        tracks, visibilities, __, __ = self.model.forward(
+        tracks, visibilities, *_ = self.model.forward(
             video=video, queries=queries, iters=6
         )
 
@@ -193,7 +195,7 @@ class CoTrackerPredictor(torch.nn.Module):
         inv_queries = queries.clone()
         inv_queries[:, :, 0] = inv_video.shape[1] - inv_queries[:, :, 0] - 1
 
-        inv_tracks, inv_visibilities, __, __ = self.model(
+        inv_tracks, inv_visibilities, *_ = self.model(
             video=inv_video, queries=inv_queries, iters=6
         )
 
@@ -217,6 +219,7 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         window_len=16,
     ):
         super().__init__()
+        self.v2 = v2
         self.support_grid_size = 6
         model = build_cotracker(checkpoint, v2=v2, offline=False, window_len=window_len)
         self.interp_shape = model.model_resolution
@@ -232,7 +235,7 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         queries: torch.Tensor = None,
         grid_size: int = 5,
         grid_query_frame: int = 0,
-        add_support_grid=False,
+        add_support_grid=True,
     ):
         B, T, C, H, W = video_chunk.shape
         # Initialize online video processing and save queried points
@@ -278,16 +281,22 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         video_chunk = video_chunk.reshape(
             B, T, 3, self.interp_shape[0], self.interp_shape[1]
         )
-
-        tracks, visibilities, confidence, __ = self.model(
-            video=video_chunk, queries=self.queries, iters=6, is_online=True
-        )
+        if self.v2:
+            tracks, visibilities, __ = self.model(
+                video=video_chunk, queries=self.queries, iters=6, is_online=True
+            )
+        else:
+            tracks, visibilities, confidence, __ = self.model(
+                video=video_chunk, queries=self.queries, iters=6, is_online=True
+            )
         if add_support_grid:
             tracks = tracks[:,:,:self.N]
             visibilities = visibilities[:,:,:self.N]
-            confidence = confidence[:,:,:self.N]
+            if not self.v2:
+                confidence = confidence[:,:,:self.N]
             
-        visibilities = visibilities * confidence
+        if not self.v2:
+            visibilities = visibilities * confidence
         thr = 0.6
         return (
             tracks
