@@ -18,6 +18,8 @@ class CoTrackerPredictor(torch.nn.Module):
         offline=True,
         v2=False,
         window_len=60,
+        point_labels=None,
+        with_svd_projection=False,
     ):
         super().__init__()
         self.v2 = v2
@@ -27,6 +29,8 @@ class CoTrackerPredictor(torch.nn.Module):
             v2=v2,
             offline=offline,
             window_len=window_len,
+            point_labels=point_labels,
+            with_svd_projection=with_svd_projection,
         )
         self.interp_shape = model.model_resolution
         self.model = model

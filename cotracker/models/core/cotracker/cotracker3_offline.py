@@ -11,7 +11,7 @@ from cotracker.models.core.cotracker.cotracker3_online import CoTrackerThreeBase
 
 torch.manual_seed(0)
 
-def project_points(coords):
+def project_points(coords, confidence):
     """
     Projects each 2D point onto the best-fit line for that frame.
     Parameters:
@@ -22,19 +22,26 @@ def project_points(coords):
           - T is the number of time samples,
           - N is the number of points per sample,
           - 2 corresponds to the (x, y) coordinates of each point.
+    confidence : torch.Tensor
+        A tensor of shape (B, T, N) containing confidence scores for each point.
     Returns:
     --------
     torch.Tensor
         A tensor of shape (B, T, N, 2) containing the projected points.
     """
+    # replace nan values in confidence with 0
+    # confidence = torch.nan_to_num(confidence, nan=0.0)
+    
     B, T, N, D = coords.shape
     # Reshape to combine batch and time: [B*T, N, D]
     coords_flat = coords.reshape(B * T, N, D)
-    
+    confidence_flat = confidence.reshape(B * T, N).unsqueeze(-1)  # Shape: [B*T, N, 1]
+
     # Compute the mean and center the data
-    mean = coords_flat.mean(dim=1, keepdim=True)    # shape: [B*T, 1, D]
-    centered = coords_flat - mean                   # shape: [B*T, N, D]
+    weighted_mean = (coords_flat * confidence_flat).sum(dim=1, keepdim=True) / (confidence_flat.sum(dim=1, keepdim=True) + 1e-8)  # shape: [B*T, 1, D]
+    centered = coords_flat - weighted_mean                 # shape: [B*T, N, D]
     
+    # Reshape confidence to match the centered data shape
     # Perform SVD on the centered data (differentiable) -> U: [B*T, N, D], S: [B*T, D], V: [B*T, D, D]
     U, S, Vh = torch.linalg.svd(centered, full_matrices=False)
     v = Vh[:,0,:] # v has shape (B*T, 2) and is a unit vector representing the best-fit line direction.
@@ -46,11 +53,11 @@ def project_points(coords):
     proj_vectors = proj_scalar.unsqueeze(-1) * v.unsqueeze(1)  # Shape: (B*T, N, 2)
 
     # Add the mean back to obtain the final projected points.
-    projected_points = mean + proj_vectors  # Shape: (B*T, N, 2)
+    projected_points = weighted_mean + proj_vectors  # Shape: (B*T, N, 2)
 
     # Reshape back to the original shape: [B, T, N, D]
     projected_points = projected_points.reshape(B, T, N, D)
-    
+    # print("Projected points:", projected_points[:,:,:projected_points.shape[2]/2,:])
     return projected_points
 
 class CoTrackerThreeOffline(CoTrackerThreeBase):
@@ -81,7 +88,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 - all_coords_predictions (List[FloatTensor[B, S, N, 2]]):
                 - mask (BoolTensor[B, T, N]):
         """
-
+        print("CoTrackerThreeOffline forward")
         B, T, C, H, W = video.shape
         device = queries.device
         assert H % self.stride == 0 and W % self.stride == 0
@@ -123,7 +130,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             fmaps = []
             for t in range(0, T, fmaps_chunk_size):
                 video_chunk = video[:, t : t + fmaps_chunk_size]
-                fmaps_chunk = self.fnet(video_chunk.reshape(-1, C_, H, W))
+                fmaps_chunk = self.fnet(video_chunk.reshape(-1, C_, H, W))                      # Paper Label: Feature Network to extract features from video (Feature CNN)
                 T_chunk = video_chunk.shape[1]
                 C_chunk, H_chunk, W_chunk = fmaps_chunk.shape[1:]
                 fmaps.append(fmaps_chunk.reshape(B, T_chunk, C_chunk, H_chunk, W_chunk))
@@ -171,16 +178,17 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
 
         coord_preds, vis_preds, confidence_preds = [], [], []
 
+        # Paper Label: Initialize coordinates (P), visibility (V), and confidence (C)
         vis = torch.zeros((B, T, N), device=device).float()
         confidence = torch.zeros((B, T, N), device=device).float()
         coords = queried_coords.reshape(B, 1, N, 2).expand(B, T, N, 2).float()
 
         r = 2 * self.corr_radius + 1
 
-        for it in range(iters):
+        for it in range(iters):                     # Paper Label: Repeat m iterations
             coords = coords.detach()  # B T N 2
             coords_init = coords.view(B * T, N, 2)
-            corr_embs = []
+            corr_embs = []                          # Paper Label: Correlation Embedding (Corr(a,b))
             corr_feats = []
             for i in range(self.corr_levels):
                 corr_feat = self.get_correlation_feat(
@@ -200,7 +208,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             corr_embs = torch.cat(corr_embs, dim=-1)
             corr_embs = corr_embs.view(B, T, N, corr_embs.shape[-1])
 
-            transformer_input = [vis[..., None], confidence[..., None], corr_embs]
+            transformer_input = [vis[..., None], confidence[..., None], corr_embs]      # Paper Label: Transformer input has Correlation Embedding (Corr(a,b)), Confidence (C(i)), and Visibility (V(i))
 
             rel_coords_forward = coords[:, :-1] - coords[:, 1:]
             rel_coords_backward = coords[:, 1:] - coords[:, :-1]
@@ -226,7 +234,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 min_deg=0,
                 max_deg=10,
             )  # batch, num_points, num_frames, 84
-            transformer_input.append(rel_pos_emb_input)
+            transformer_input.append(rel_pos_emb_input)                             # Paper Label: Relative Position Embedding P(i)
 
             x = (
                 torch.cat(transformer_input, dim=-1)
@@ -237,7 +245,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             x = x + self.interpolate_time_embed(x, T)
             x = x.view(B, N, T, -1)  # (B N) T D -> B N T D
 
-            delta = self.updateformer(
+            delta = self.updateformer(              # Paper Label: Transformer update
                 x,
                 add_space_attn=add_space_attn,
             )
@@ -250,8 +258,19 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             confidence = confidence + delta_confidence
 
             coords = coords + delta_coords
+            print("self.with_svd_projection:", self.with_svd_projection)
             if self.with_svd_projection:
-                coords = project_points(coords)
+                if self.point_labels is not None:
+                    point_labels_set = set(self.point_labels)   # Get unique point labels (0 = points, 1-n = lines)
+                    for label in point_labels_set:
+                        if label != 0:      # Exclude point label 0
+                            filtered_labels = self.point_labels == label
+                            padding = torch.zeros(max(N - filtered_labels.shape[0], 0), dtype=torch.bool).to(device)
+                            filtered_labels = torch.cat([filtered_labels, padding], dim=0)
+                            filtered_confidence = confidence[:, :, filtered_labels]
+                            coords[:,:,filtered_labels] = project_points(coords[:,:,filtered_labels, :], filtered_confidence)
+                else:
+                    coords = project_points(coords, confidence)
             coords_append = coords.clone()
             coords_append[..., :2] = coords_append[..., :2] * float(self.stride)
             coord_preds.append(coords_append)
