@@ -23,10 +23,10 @@ def build_cotracker(
         raise ValueError(f"Unknown model name {model_name}")
 
 
-def build_cotracker(checkpoint=None, offline=True, window_len=16, v2=False, point_labels=None, with_svd_projection=False):
+def build_cotracker(checkpoint=None, offline=True, window_len=16, v2=False, point_labels=None, projection='non-svd', sam=None):
     if offline:
         cotracker = CoTrackerThreeOffline(
-            stride=4, corr_radius=3, window_len=window_len, point_labels=point_labels, with_svd_projection=with_svd_projection
+            stride=4, corr_radius=3, window_len=window_len, point_labels=point_labels, projection=projection, sam=sam
         )
     else:
         if v2:

@@ -376,25 +376,35 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias=qkv_bias)
         self.to_out = nn.Linear(inner_dim, query_dim)
 
-    def forward(self, x, context=None, attn_bias=None):
+    def forward(self, x, context=None, attn_bias=None, return_weights=False):
+        '''
+        x: query tensor (B, N1, C)
+            B: batch size
+            N1: number of virtual query points
+            C: number of feature dimensions
+        '''
         B, N1, C = x.shape
         h = self.heads
 
-        q = self.to_q(x).reshape(B, N1, h, C // h).permute(0, 2, 1, 3)
-        context = default(context, x)
+        q = self.to_q(x).reshape(B, N1, h, C // h).permute(0, 2, 1, 3)      # q.shape = (B, h, N1, C//h): C//h = the dimensions per head
+        context = default(context, x)       # context=x for self-attention; context=context for cross-attention
         k, v = self.to_kv(context).chunk(2, dim=-1)
 
         N2 = context.shape[1]
         k = k.reshape(B, N2, h, C // h).permute(0, 2, 1, 3)
         v = v.reshape(B, N2, h, C // h).permute(0, 2, 1, 3)
 
-        sim = (q @ k.transpose(-2, -1)) * self.scale
-
+        # q.shape = (B, h, N1, d)
+        # k.tranpose(-2,-1).shape = (B, h, d, N2)
+        sim = (q @ k.transpose(-2, -1)) * self.scale    # sim.shape = (B, h, N1, N2)
+       
+        # attn_bias=None
         if attn_bias is not None:
             sim = sim + attn_bias
-        attn = sim.softmax(dim=-1)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N1, C)
+        attn = sim.softmax(dim=-1)      # attn.shape = (B, h, N1, N2)
+        x = (attn @ v).transpose(1, 2).reshape(B, N1, C)        # x.shape = (B, N1, C)
+        if return_weights:
+            return self.to_out(x), attn
         return self.to_out(x)
 
 
@@ -423,7 +433,7 @@ class AttnBlock(nn.Module):
             drop=0,
         )
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, return_weights=False):
         attn_bias = mask
         if mask is not None:
             mask = (
@@ -433,6 +443,14 @@ class AttnBlock(nn.Module):
             )
             max_neg_value = -torch.finfo(x.dtype).max
             attn_bias = (~mask) * max_neg_value
-        x = x + self.attn(self.norm1(x), attn_bias=attn_bias)
-        x = x + self.mlp(self.norm2(x))
-        return x
+        if return_weights:
+            # self-attention
+            x, attn_weights = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
+            x = x + self.mlp(self.norm2(x))
+            
+            # attn_weights.shape = (B, h, N1, N2)
+            return x, attn_weights
+        else:
+            x = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
+            x = x + self.mlp(self.norm2(x))
+            return x

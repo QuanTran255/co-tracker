@@ -50,8 +50,10 @@ class CoTrackerThreeBase(nn.Module):
         model_resolution=(384, 512),
         add_space_attn=True,
         linear_layer_for_vis_conf=True,
-        with_svd_projection=False,
+        projection="non-svd",
         point_labels=None,
+        num_heads=8,
+        sam=None,
     ):
         super(CoTrackerThreeBase, self).__init__()
         self.window_len = window_len
@@ -60,10 +62,11 @@ class CoTrackerThreeBase(nn.Module):
         self.corr_levels = corr_levels
         self.hidden_dim = 256
         self.latent_dim = 128
-        self.with_svd_projection = with_svd_projection
+        self.projection = projection
         self.linear_layer_for_vis_conf = linear_layer_for_vis_conf
         self.fnet = BasicEncoder(input_dim=3, output_dim=self.latent_dim, stride=stride)
         self.point_labels = point_labels
+        self.sam=sam
 
         highres_dim = 128
         lowres_dim = 256
@@ -93,6 +96,7 @@ class CoTrackerThreeBase(nn.Module):
         self.register_buffer(
             "time_emb", get_1d_sincos_pos_embed_from_grid(self.input_dim, time_grid[0])
         )
+        self.num_heads=num_heads
 
     def get_support_points(self, coords, r, reshape_back=True):
         B, _, N, _ = coords.shape
@@ -250,7 +254,7 @@ class CoTrackerThreeOnline(CoTrackerThreeBase):
             x = x + self.interpolate_time_embed(x, S)
             x = x.view(B, N, S, -1)  # (B N) T D -> B N T D
 
-            delta = self.updateformer(x, add_space_attn=add_space_attn)
+            delta, attn_weights = self.updateformer(x, add_space_attn=add_space_attn, return_weights=True)
 
             delta_coords = delta[..., :2].permute(0, 2, 1, 3)
             delta_vis = delta[..., 2:3].permute(0, 2, 1, 3)
@@ -377,7 +381,7 @@ class CoTrackerThreeOnline(CoTrackerThreeBase):
             fmaps = []
             for t in range(0, T, fmaps_chunk_size):
                 video_chunk = video[:, t : t + fmaps_chunk_size]
-                fmaps_chunk = self.fnet(video_chunk.reshape(-1, C_, H, W))
+                fmaps_chunk = self.fnet(video_chunk.reshape(-1, C_, H, W))      # fnet: in=3; out=latent_dim=128
                 T_chunk = video_chunk.shape[1]
                 C_chunk, H_chunk, W_chunk = fmaps_chunk.shape[1:]
                 fmaps.append(fmaps_chunk.reshape(B, T_chunk, C_chunk, H_chunk, W_chunk))
