@@ -55,9 +55,10 @@ class CoTrackerPredictor(torch.nn.Module):
         grid_query_frame: int = 0,  # only for dense and regular grid tracks
         backward_tracking: bool = False,
         add_support_grid: bool = True,
+        query_support: bool = False,
+        mask_support: bool = False,
         return_weights=False,
-        build_mask=False,
-        weighted_svd=True
+        build_mask=False
     ):
         attn_weights = None
         if queries is None and grid_size == 0:
@@ -73,6 +74,8 @@ class CoTrackerPredictor(torch.nn.Module):
                 segm_mask,
                 grid_size,
                 add_support_grid=add_support_grid,
+                query_support=query_support,
+                mask_support=mask_support,
                 grid_query_frame=grid_query_frame,
                 backward_tracking=backward_tracking,
                 return_weights=return_weights,
@@ -118,11 +121,15 @@ class CoTrackerPredictor(torch.nn.Module):
         segm_mask=None,
         grid_size=0,
         add_support_grid=False,
+        query_support=False,
+        mask_support=False,
         grid_query_frame=0,
         backward_tracking=False,
         return_weights=False,
         build_mask=False
     ):
+        added_support = 0
+        
         B, T, C, H, W = video.shape
 
         video = video.reshape(B * T, C, H, W)
@@ -131,18 +138,10 @@ class CoTrackerPredictor(torch.nn.Module):
         )
         video = video.reshape(B, T, 3, self.interp_shape[0], self.interp_shape[1])
         if queries is not None:
-            
-            if add_support_grid:
-                # grid_pts = get_points_on_a_grid(
-                #     self.support_grid_size, self.interp_shape, device=video.device
-                # )
-                # grid_pts = torch.cat(
-                #     [torch.zeros_like(grid_pts[:, :, :1]), grid_pts], dim=2
-                # )
-                # grid_pts = grid_pts.repeat(B, 1, 1)
-                # queries = torch.cat([queries, grid_pts], dim=1)
+            B, N, D = queries.shape
+            if query_support:
                 queries = self.sam.get_points_around_queries(queries, extent=self.interp_shape, grid_size=self.support_grid_size)
-            print("CoTrackerPredictor queries", queries[:,:10])
+                added_support += queries.shape[1] - N
             B, N, D = queries.shape
             assert D == 3
             queries = queries.clone()
@@ -154,6 +153,7 @@ class CoTrackerPredictor(torch.nn.Module):
             )
             
         elif grid_size > 0:
+            _,N,_ = queries.shape
             grid_pts = get_points_on_a_grid(
                 grid_size, self.interp_shape, device=video.device
             )
@@ -171,45 +171,63 @@ class CoTrackerPredictor(torch.nn.Module):
                 [torch.ones_like(grid_pts[:, :, :1]) * grid_query_frame, grid_pts],
                 dim=2,
             ).repeat(B, 1, 1)
-
+            added_support += queries.shape[1] - N
+            
+        if add_support_grid:
+            _,N,_ = queries.shape
+            print("CoTrackerPredictor queries before support", queries, "added_support:", added_support)
+            grid_pts = get_points_on_a_grid(
+                self.support_grid_size, self.interp_shape, device=video.device
+            )
+            grid_pts = torch.cat(
+                [torch.zeros_like(grid_pts[:, :, :1]), grid_pts], dim=2
+            )
+            grid_pts = grid_pts.repeat(B, 1, 1)
+            queries = torch.cat([queries, grid_pts], dim=1)
+            added_support += queries.shape[1] - N
+            print("CoTrackerPredictor queries with support", queries, "added_support:", added_support)
        
         # print("CoTrackerPredictor queries with support", queries)
         if return_weights:
             tracks, visibilities, _, _, attn_weights = self.model.forward(
                 video=video, queries=queries, iters=6, return_weights=return_weights, build_mask=build_mask)
-            
+            print("tracks trace", tracks)
             if backward_tracking:
                 tracks, visibilities, attn_weights = self._compute_backward_tracks(
                     video, queries, tracks, visibilities, attn_weights, return_weights=return_weights, build_mask=build_mask
                 )
-                # if add_support_grid:
-                #     queries[:, -self.support_grid_size**2 :, 0] = T - 1
+                if add_support_grid:
+                    queries[:, -self.support_grid_size**2 :, 0] = T - 1
         else:
             tracks, visibilities, *_ = self.model.forward(
                 video=video, queries=queries, iters=6, build_mask=build_mask
             )
-
+            print("tracks2 trace", tracks)
             if backward_tracking:
                 tracks, visibilities, _ = self._compute_backward_tracks(
                     video, queries, tracks, visibilities, attn_weights, build_mask=build_mask
                 )
-                # if add_support_grid:
-                #     queries[:, -self.support_grid_size**2 :, 0] = T - 1
-        if add_support_grid:
+                if add_support_grid:
+                    queries[:, -self.support_grid_size**2 :, 0] = T - 1
+        if added_support > 0:
+            print("Added support points:", added_support)
+            print("tracks shape:", tracks.shape)
             if queries is not None:
-                _,N,_ = queries.shape
-                print("N: %s", N)
-                grid_size = self.support_grid_size
-                if grid_size % 2 == 0:
-                    grid_size += 1
-                N = N//grid_size**2
-                print("N: %s", N)
-                print("grid_size: %s", grid_size)
-                tracks = tracks[:, :, : -(grid_size**2*N-N)]
-                visibilities = visibilities[:, :, : -(grid_size**2*N-N)]
-                attn_weights = attn_weights[:, :, :, :, :, : -(grid_size**2*N-N)]
+                # _,N,_ = queries.shape
+                # print("N: %s", N)
+                # grid_size = self.support_grid_size
+                # if grid_size % 2 == 0:
+                #     grid_size += 1
+                # N = N//grid_size**2
+                # print("N: %s", N)
+                # print("grid_size: %s", grid_size)
+                print("tracks before remove support:", tracks)
+                tracks = tracks[:, :, : -added_support]
+                visibilities = visibilities[:, :, : -added_support]
+                print("tracks after remove support:", tracks)
+                # attn_weights = attn_weights[:, :, :, :, :, : -added_support]
             else:
-                tracks = tracks[:, :, : -(self.support_grid_size**2*N-N)]
+                tracks = tracks[:, :, : -(self.support_grid_size**2)]
                 visibilities = visibilities[:, :, : -self.support_grid_size**2]
                 attn_weights = attn_weights[:, :, :, :, :, : -self.support_grid_size**2]
         thr = 0.9
