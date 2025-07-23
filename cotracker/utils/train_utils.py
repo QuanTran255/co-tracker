@@ -44,7 +44,7 @@ def get_eval_dataloader(dataset_root, ds_name):
             only_first_n_samples=1,
             rgbd_input=False,
         )
-    elif ds_name == "tapvid_davis_first":
+    elif ds_name == "tapvid_davis":
         data_root = os.path.join(dataset_root, "tapvid/tapvid_davis/tapvid_davis.pkl")
         eval_dataset = TapVidDataset(
             dataset_type="davis", data_root=data_root, queried_first=True

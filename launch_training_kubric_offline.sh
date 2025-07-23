@@ -20,7 +20,7 @@ sbatch --comment=${EXP_NAME} --partition=learn --account=repligen --qos=repligen
 --error=${EXP_DIR}/${DATE}_${EXP_NAME}/logs/%j_%x_%A_%a_%N.err \
 --wrap="srun --label python ${EXP_DIR}/${DATE}_${EXP_NAME}/cotracker3/train_on_kubric.py --batch_size 1 \
 --num_steps ${NUM_STEPS} --ckpt_path ${EXP_DIR}/${DATE}_${EXP_NAME} --model_name cotracker_three \
---save_freq 200 --sequence_len 60 --eval_datasets tapvid_davis_first tapvid_stacking \
+--save_freq 200 --sequence_len 60 --eval_datasets tapvid_davis tapvid_stacking \
 --traj_per_sample 512 --sliding_window_len 60 --train_datasets kubric \
 --save_every_n_epoch 5 --evaluate_every_n_epoch 5 --model_stride 4 --dataset_root ${DATASET_ROOT} --num_nodes 4 \
 --num_virtual_tracks 64 --mixed_precision --offline_model --random_frame_rate --query_sampling_method random \

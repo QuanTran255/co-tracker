@@ -150,7 +150,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 - all_coords_predictions (List[FloatTensor[B, S, N, 2]]):
                 - mask (BoolTensor[B, T, N]):
         """
-        print("CoTrackerThreeOffline forward")
+        print(f"CoTrackerThreeOffline forward, build_mask: {build_mask}" )
         attn_weights=None
         virtual2point_mask, point2virtual_mask = None, None
         B, T, C, H, W = video.shape
@@ -171,12 +171,14 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         # coords_init = B T N 2
         # vis_init = B T N 1
         
-        squish_queries = queries.reshape(B*N, 3)  # [B*N, 3]
+        if build_mask:
         
-        squish_queries, self.point_labels = self.sam.build_labels(squish_queries)
-    
-        queries = squish_queries.reshape(B, N, 3).to(device)  # [B, N, 3]
-        self.point_labels = self.point_labels.to(device)  # [B, N]
+            squish_queries = queries.reshape(B*N, 3)  # [B*N, 3]
+            print("squish_queries in Cotracker offline:", squish_queries.shape)
+            squish_queries, self.point_labels = self.sam.build_labels(video, squish_queries)
+        
+            queries = squish_queries.reshape(B, N, 3).to(device)  # [B, N, 3]
+            self.point_labels = self.point_labels.to(device)  # [B, N]
 
         assert T >= 1  # A tracker needs at least two frames to track something
 

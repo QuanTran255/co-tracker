@@ -55,11 +55,12 @@ class CoTrackerPredictor(torch.nn.Module):
         grid_query_frame: int = 0,  # only for dense and regular grid tracks
         backward_tracking: bool = False,
         add_support_grid: bool = True,
-        query_support: bool = False,
-        mask_support: bool = False,
+        query_support: bool = True,
+        mask_support: bool = True,
         return_weights=False,
         build_mask=False
     ):
+        print(f"CotrackerPredictor forward, build_mask: {build_mask}, mask_support: {mask_support}, query_support: {query_support}")
         attn_weights = None
         if queries is None and grid_size == 0:
             tracks, visibilities = self._compute_dense_tracks(
@@ -68,6 +69,7 @@ class CoTrackerPredictor(torch.nn.Module):
                 backward_tracking=backward_tracking,
             )
         else:
+            print("CoTrackerPredictor compute sparse tracks")
             tracks, visibilities, attn_weights = self._compute_sparse_tracks(
                 video,
                 queries,
@@ -120,9 +122,9 @@ class CoTrackerPredictor(torch.nn.Module):
         queries,
         segm_mask=None,
         grid_size=0,
-        add_support_grid=False,
-        query_support=False,
-        mask_support=False,
+        add_support_grid=True,
+        query_support=True,
+        mask_support=True,
         grid_query_frame=0,
         backward_tracking=False,
         return_weights=False,

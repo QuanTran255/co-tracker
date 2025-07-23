@@ -286,3 +286,5 @@ class Evaluator:
                 )
             self.compute_metrics(metrics, sample, pred_tracks, dataset_name)
         return metrics
+
+#python ./tracker/cotracker3/cotracker/evaluation/evaluate.py --config-name eval_tapvid_davis_first exp_dir=./eval_outputs dataset_root=/shared/bg40/tapvid_davis/ offline_model=True window_len=60 checkpoint=./checkpoints/scaled_offline.pth

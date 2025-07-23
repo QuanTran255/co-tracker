@@ -706,7 +706,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--eval_datasets",
         nargs="+",
-        default=["tapvid_davis_first"],
+        default=["tapvid_davis"],
         help="what datasets to use for evaluation",
     )
     parser.add_argument(

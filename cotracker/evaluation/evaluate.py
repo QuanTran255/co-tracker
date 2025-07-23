@@ -28,7 +28,7 @@ class DefaultConfig:
     exp_dir: str = "./outputs"
 
     # Name of the dataset to be used for the evaluation.
-    dataset_name: str = "tapvid_davis_first"
+    dataset_name: str = "tapvid_davis"
     # The root directory of the dataset.
     dataset_root: str = "./"
 
@@ -58,12 +58,12 @@ class DefaultConfig:
 
     # Override hydra's working directory to current working dir,
     # also disable storing the .hydra logs:
-    hydra: dict = field(
-        default_factory=lambda: {
-            "run": {"dir": "."},
-            "output_subdir": None,
-        }
-    )
+    # hydra: dict = field(
+    #     default_factory=lambda: {
+    #         "run": {"dir": "."},
+    #         "output_subdir": None,
+    #     }
+    # )
 
 
 def run_eval(cfg: DefaultConfig):
@@ -179,7 +179,7 @@ cs = hydra.core.config_store.ConfigStore.instance()
 cs.store(name="default_config_eval", node=DefaultConfig)
 
 
-@hydra.main(config_path="./configs/", config_name="default_config_eval")
+@hydra.main(version_base="1.3", config_path="/home/qmt1/tracker/tracker-optimizer/tracker/cotracker3/cotracker/evaluation/configs", config_name="default_config_eval")
 def evaluate(cfg: DefaultConfig) -> None:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_idx)

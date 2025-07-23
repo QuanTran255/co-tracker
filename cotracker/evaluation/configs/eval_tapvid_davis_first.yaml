@@ -1,6 +1,6 @@
+version_base: 1.3
 defaults:
+  - _self_
   - default_config_eval
 exp_dir: ./outputs/cotracker
-dataset_name: tapvid_davis_first
-
-   
+dataset_name: tapvid_davis

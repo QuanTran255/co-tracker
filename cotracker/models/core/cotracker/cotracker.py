@@ -545,7 +545,8 @@ class EfficientUpdateFormer(nn.Module):
                     0, 2, 1, 3
                 )  # (B T) N C -> B N T C
                 j += 1
-        space_attn_weights = torch.stack(attn_layers, dim=1)    # space_attn_weights shape = (B, L, T, h, N_virtual, N_point)
+        if return_weights:
+            space_attn_weights = torch.stack(attn_layers, dim=1)    # space_attn_weights shape = (B, L, T, h, N_virtual, N_point)
         tokens = tokens[:, : N - self.num_virtual_tracks]
 
         flow = self.flow_head(tokens)
