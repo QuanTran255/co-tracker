@@ -4,3 +4,5 @@
 /cotracker/models/core/__pycache__
 /cotracker/models/__pycache__
 /checkpoints
+*.pyc
+*.egg-info
