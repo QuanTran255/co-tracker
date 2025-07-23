@@ -289,7 +289,7 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         checkpoint="./checkpoints/scaled_online.pth",
         offline=False,
         v2=False,
-        window_len=16
+        window_len=16,
     ):
         super().__init__()
         self.v2 = v2
