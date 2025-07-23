@@ -530,22 +530,19 @@ class EfficientUpdateFormer(nn.Module):
                     # print("EfficientUpdateFormer-forward attn_weights shape: ", attn_weights.shape)
                 else:
                     # Cross Attn
-                    virtual_tokens = self.space_virtual2point_blocks[j](
-                        virtual_tokens, point_tokens
-                    )
+                    virtual_tokens = self.space_virtual2point_blocks[j](virtual_tokens, point_tokens, mask=virtual2point_mask, return_weights=False)
+                    
                     # Self Attn
                     virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
                     # Cross Attn
-                    point_tokens = self.space_point2virtual_blocks[j](
-                        point_tokens, virtual_tokens
-                    )
+                    point_tokens = self.space_point2virtual_blocks[j](point_tokens, virtual_tokens, mask=point2virtual_mask)
 
                 space_tokens = torch.cat([point_tokens, virtual_tokens], dim=1)
                 tokens = space_tokens.view(B, T, N, -1).permute(
                     0, 2, 1, 3
                 )  # (B T) N C -> B N T C
                 j += 1
-        space_attn_weights = torch.stack(attn_layers, dim=1)    # space_attn_weights shape = (B, L, T, h, N_virtual, N_point)
+        # space_attn_weights = torch.stack(attn_layers, dim=1)    # space_attn_weights shape = (B, L, T, h, N_virtual, N_point)
         tokens = tokens[:, : N - self.num_virtual_tracks]
 
         flow = self.flow_head(tokens)
