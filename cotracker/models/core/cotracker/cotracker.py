@@ -480,7 +480,7 @@ class EfficientUpdateFormer(nn.Module):
 
         self.apply(_basic_init)
 
-    def forward(self, input_tensor, mask=None, add_space_attn=True):
+    def forward(self, input_tensor, virtual2point_mask=None, point2virtual_mask=None, add_space_attn=True, return_weights=False):
         tokens = self.input_transform(input_tensor)
 
         B, _, T, _ = tokens.shape
@@ -490,10 +490,11 @@ class EfficientUpdateFormer(nn.Module):
         _, N, _, _ = tokens.shape
         j = 0
         layers = []
-        for i in range(len(self.time_blocks)):
+        attn_layers = []
+        space_attn_weights = None
+        for i, _ in enumerate(self.time_blocks):
             time_tokens = tokens.contiguous().view(B * N, T, -1)  # B N T C -> (B N) T C
             time_tokens = self.time_blocks[i](time_tokens)
-
             tokens = time_tokens.view(B, N, T, -1)  # (B N) T C -> B N T C
             if (
                 add_space_attn
@@ -504,23 +505,47 @@ class EfficientUpdateFormer(nn.Module):
                     tokens.permute(0, 2, 1, 3).contiguous().view(B * T, N, -1)
                 )  # B N T C -> (B T) N C
 
-                point_tokens = space_tokens[:, : N - self.num_virtual_tracks]
-                virtual_tokens = space_tokens[:, N - self.num_virtual_tracks :]
+                point_tokens = space_tokens[:, : N - self.num_virtual_tracks]       # point_tokens shape = (B*T), N_point, C
+                virtual_tokens = space_tokens[:, N - self.num_virtual_tracks :]     # point_tokens shape = (B*T), N_virtual, C
 
-                virtual_tokens = self.space_virtual2point_blocks[j](
-                    virtual_tokens, point_tokens, mask=mask
-                )
-
-                virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
-                point_tokens = self.space_point2virtual_blocks[j](
-                    point_tokens, virtual_tokens, mask=mask
-                )
+                if return_weights:
+                    
+                    # Cross Attn
+                    virtual_tokens, attn_weights = self.space_virtual2point_blocks[j](virtual_tokens, point_tokens, mask=virtual2point_mask, return_weights=return_weights)
+                    attn_weights = attn_weights.view(B, T, self.num_heads, self.num_virtual_tracks, N-self.num_virtual_tracks)
+                    # attn_weights.shape = (B*T), h, N_virtual, N_point -> B, T, h, N_virtual, N_point
+                    
+                    # Self Attn
+                    virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
+                    
+                    # Cross Attn
+                    point_tokens = self.space_point2virtual_blocks[j](point_tokens, virtual_tokens, mask=point2virtual_mask)
+                    
+                    attn_layers.append(attn_weights)
+                    
+                    # if space_attn_weights is None:
+                    #     space_attn_weights = attn_weights
+                    # else:
+                    #     space_attn_weights = torch.cat([space_attn_weights, attn_weights], dim=2)
+                    # print("EfficientUpdateFormer-forward attn_weights shape: ", attn_weights.shape)
+                else:
+                    # Cross Attn
+                    virtual_tokens = self.space_virtual2point_blocks[j](
+                        virtual_tokens, point_tokens
+                    )
+                    # Self Attn
+                    virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
+                    # Cross Attn
+                    point_tokens = self.space_point2virtual_blocks[j](
+                        point_tokens, virtual_tokens
+                    )
 
                 space_tokens = torch.cat([point_tokens, virtual_tokens], dim=1)
                 tokens = space_tokens.view(B, T, N, -1).permute(
                     0, 2, 1, 3
                 )  # (B T) N C -> B N T C
                 j += 1
+        space_attn_weights = torch.stack(attn_layers, dim=1)    # space_attn_weights shape = (B, L, T, h, N_virtual, N_point)
         tokens = tokens[:, : N - self.num_virtual_tracks]
 
         flow = self.flow_head(tokens)
@@ -528,6 +553,8 @@ class EfficientUpdateFormer(nn.Module):
             vis_conf = self.vis_conf_head(tokens)
             flow = torch.cat([flow, vis_conf], dim=-1)
 
+        if return_weights:
+            return flow, space_attn_weights
         return flow
 
 
@@ -556,10 +583,12 @@ class CrossAttnBlock(nn.Module):
             drop=0,
         )
 
-    def forward(self, x, context, mask=None):
+    def forward(self, x, context, mask=None, return_weights=False):
         attn_bias = None
         if mask is not None:
-            if mask.shape[1] == x.shape[1]:
+            if len(mask.shape)==4:
+                pass
+            elif mask.shape[1] == x.shape[1]:
                 mask = mask[:, None, :, None].expand(
                     -1, self.cross_attn.heads, -1, context.shape[1]
                 )
@@ -570,8 +599,26 @@ class CrossAttnBlock(nn.Module):
 
             max_neg_value = -torch.finfo(x.dtype).max
             attn_bias = (~mask) * max_neg_value
-        x = x + self.cross_attn(
-            self.norm1(x), context=self.norm_context(context), attn_bias=attn_bias
-        )
+            
+        if return_weights:
+            attn_out, attn_weights = self.cross_attn(
+                self.norm1(x),
+                context=self.norm_context(context),
+                attn_bias=attn_bias,
+                return_weights=True,
+            )
+        else:
+            attn_out = self.cross_attn(
+                self.norm1(x),
+                context=self.norm_context(context),
+                attn_bias=attn_bias,
+                return_weights=False,
+            )
+            attn_weights = None
+
+        x = x + attn_out
         x = x + self.mlp(self.norm2(x))
+
+        if return_weights:
+            return x, attn_weights
         return x
