@@ -121,8 +121,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         virtual2point_mask = mask.repeat(B*T, self.num_heads, 1, 1)
         point2virtual_mask = torch.transpose(virtual2point_mask, 2, 3)
         return virtual2point_mask, point2virtual_mask
-    
-        
 
     def forward(
         self,
@@ -156,7 +154,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         B, T, C, H, W = video.shape
         device = queries.device
         assert H % self.stride == 0 and W % self.stride == 0
-        
         B, N, __ = queries.shape
         # B = batch size
         # S_trimmed = actual number of frames in the window
@@ -177,7 +174,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
     
         queries = squish_queries.reshape(B, N, 3).to(device)  # [B, N, 3]
         self.point_labels = self.point_labels.to(device)  # [B, N]
-
         assert T >= 1  # A tracker needs at least two frames to track something
 
         video = 2 * (video / 255.0) - 1.0
@@ -248,12 +244,14 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
 
         coord_preds, vis_preds, confidence_preds = [], [], []
 
+
         # Paper Label: Initialize coordinates (P), visibility (V), and confidence (C)
         vis = torch.zeros((B, T, N), device=device).float()
         confidence = torch.zeros((B, T, N), device=device).float()
         coords = queried_coords.reshape(B, 1, N, 2).expand(B, T, N, 2).float()
 
         r = 2 * self.corr_radius + 1
+
 
         for it in range(iters):                     # Paper Label: Repeat m iterations
             coords = coords.detach()  # B T N 2
