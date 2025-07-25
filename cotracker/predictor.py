@@ -60,7 +60,6 @@ class CoTrackerPredictor(torch.nn.Module):
         return_weights=False,
         build_mask=False
     ):
-        attn_weights = None
         if queries is None and grid_size == 0:
             tracks, visibilities = self._compute_dense_tracks(
                 video,
@@ -68,7 +67,7 @@ class CoTrackerPredictor(torch.nn.Module):
                 backward_tracking=backward_tracking,
             )
         else:
-            tracks, visibilities, attn_weights = self._compute_sparse_tracks(
+            tracks, visibilities = self._compute_sparse_tracks(
                 video,
                 queries,
                 segm_mask,
@@ -82,7 +81,7 @@ class CoTrackerPredictor(torch.nn.Module):
                 build_mask=build_mask
             )
 
-        return tracks, visibilities, attn_weights
+        return tracks, visibilities
 
     def _compute_dense_tracks(
         self, video, grid_query_frame, grid_size=80, backward_tracking=False
@@ -188,48 +187,27 @@ class CoTrackerPredictor(torch.nn.Module):
             print("CoTrackerPredictor queries with support", queries, "added_support:", added_support)
        
         # print("CoTrackerPredictor queries with support", queries)
-        if return_weights:
-            tracks, visibilities, _, _, attn_weights = self.model.forward(
-                video=video, queries=queries, iters=6, return_weights=return_weights, build_mask=build_mask)
-            print("tracks trace", tracks)
-            if backward_tracking:
-                tracks, visibilities, attn_weights = self._compute_backward_tracks(
-                    video, queries, tracks, visibilities, attn_weights, return_weights=return_weights, build_mask=build_mask
-                )
-                if add_support_grid:
-                    queries[:, -self.support_grid_size**2 :, 0] = T - 1
-        else:
-            tracks, visibilities, *_ = self.model.forward(
-                video=video, queries=queries, iters=6, build_mask=build_mask
+        tracks, visibilities, *_ = self.model.forward(
+            video=video, queries=queries, iters=6, build_mask=build_mask
+        )
+        print("tracks2 trace", tracks)
+        if backward_tracking:
+            tracks, visibilities, _ = self._compute_backward_tracks(
+                video, queries, tracks, visibilities, build_mask=build_mask
             )
-            print("tracks2 trace", tracks)
-            if backward_tracking:
-                tracks, visibilities, _ = self._compute_backward_tracks(
-                    video, queries, tracks, visibilities, attn_weights, build_mask=build_mask
-                )
-                if add_support_grid:
-                    queries[:, -self.support_grid_size**2 :, 0] = T - 1
+            if add_support_grid:
+                queries[:, -self.support_grid_size**2 :, 0] = T - 1
         if added_support > 0:
             print("Added support points:", added_support)
             print("tracks shape:", tracks.shape)
             if queries is not None:
-                # _,N,_ = queries.shape
-                # print("N: %s", N)
-                # grid_size = self.support_grid_size
-                # if grid_size % 2 == 0:
-                #     grid_size += 1
-                # N = N//grid_size**2
-                # print("N: %s", N)
-                # print("grid_size: %s", grid_size)
                 print("tracks before remove support:", tracks)
                 tracks = tracks[:, :, : -added_support]
                 visibilities = visibilities[:, :, : -added_support]
                 print("tracks after remove support:", tracks)
-                # attn_weights = attn_weights[:, :, :, :, :, : -added_support]
             else:
                 tracks = tracks[:, :, : -(self.support_grid_size**2)]
                 visibilities = visibilities[:, :, : -self.support_grid_size**2]
-                attn_weights = attn_weights[:, :, :, :, :, : -self.support_grid_size**2]
         thr = 0.9
         visibilities = visibilities > thr
 
@@ -250,23 +228,16 @@ class CoTrackerPredictor(torch.nn.Module):
         tracks *= tracks.new_tensor(
             [(W - 1) / (self.interp_shape[1] - 1), (H - 1) / (self.interp_shape[0] - 1)]
         )
-        return tracks, visibilities, attn_weights
+        return tracks, visibilities
 
-    def _compute_backward_tracks(self, video, queries, tracks, visibilities, attn_weights, return_weights=False, build_mask=False):
+    def _compute_backward_tracks(self, video, queries, tracks, visibilities, return_weights=False, build_mask=False):
         inv_video = video.flip(1).clone()
         inv_queries = queries.clone()
         inv_queries[:, :, 0] = inv_video.shape[1] - inv_queries[:, :, 0] - 1
 
-        if return_weights:
-            inv_tracks, inv_visibilities, _, _, inv_attn_weights = self.model(
-                video=inv_video, queries=inv_queries, iters=6, return_weights=return_weights, build_mask=build_mask
-            )
-            inv_attn_weights = inv_attn_weights.flip(3)
-            attn_weights = torch.cat([inv_attn_weights, attn_weights], dim=3)
-        else: 
-            inv_tracks, inv_visibilities, *_ = self.model(
-                video=inv_video, queries=inv_queries, iters=6, build_mask=build_mask
-            )
+        inv_tracks, inv_visibilities, *_ = self.model(
+            video=inv_video, queries=inv_queries, iters=6, build_mask=build_mask
+        )
 
         inv_tracks = inv_tracks.flip(1)
         inv_visibilities = inv_visibilities.flip(1)
@@ -276,8 +247,6 @@ class CoTrackerPredictor(torch.nn.Module):
 
         tracks[mask] = inv_tracks[mask]
         visibilities[mask[:, :, :, 0]] = inv_visibilities[mask[:, :, :, 0]]
-        if return_weights:
-            return tracks, visibilities, attn_weights
         return tracks, visibilities, None
 
 

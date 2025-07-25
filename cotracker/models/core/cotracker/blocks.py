@@ -403,8 +403,6 @@ class Attention(nn.Module):
             sim = sim + attn_bias
         attn = sim.softmax(dim=-1)      # attn.shape = (B, h, N1, N2)
         x = (attn @ v).transpose(1, 2).reshape(B, N1, C)        # x.shape = (B, N1, C)
-        if return_weights:
-            return self.to_out(x), attn
         return self.to_out(x)
 
 
@@ -443,14 +441,6 @@ class AttnBlock(nn.Module):
             )
             max_neg_value = -torch.finfo(x.dtype).max
             attn_bias = (~mask) * max_neg_value
-        if return_weights:
-            # self-attention
-            x, attn_weights = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
-            x = x + self.mlp(self.norm2(x))
-            
-            # attn_weights.shape = (B, h, N1, N2)
-            return x, attn_weights
-        else:
-            x = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
-            x = x + self.mlp(self.norm2(x))
-            return x
+        x = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
+        x = x + self.mlp(self.norm2(x))
+        return x

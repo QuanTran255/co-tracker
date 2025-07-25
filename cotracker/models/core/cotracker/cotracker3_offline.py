@@ -86,7 +86,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
     def __init__(self, **args):
         super(CoTrackerThreeOffline, self).__init__(**args)
         
-    def _build_mask(self, video, queries, num_attend=4):
+    def _build_mask(self, video, queries, num_attend=6):
         '''
         video: tensor with shape B, T, C, H, W
         queries: tensor with shape B, N, 3
@@ -149,7 +149,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 - mask (BoolTensor[B, T, N]):
         """
         print("CoTrackerThreeOffline forward")
-        attn_weights=None
         virtual2point_mask, point2virtual_mask = None, None
         B, T, C, H, W = video.shape
         device = queries.device
@@ -315,21 +314,12 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             if build_mask:
                 virtual2point_mask, point2virtual_mask = self._build_mask(video, queries)
             
-            if return_weights:
-                delta, attn_weights = self.updateformer(
-                    x,
-                    virtual2point_mask=virtual2point_mask,
-                    point2virtual_mask=point2virtual_mask,
-                    add_space_attn=add_space_attn,
-                    return_weights=return_weights
-                )
-            else: 
-                delta = self.updateformer(              # Paper Label: Transformer update
-                    x,
-                    virtual2point_mask=virtual2point_mask,
-                    point2virtual_mask=point2virtual_mask,
-                    add_space_attn=add_space_attn,
-                )
+            delta = self.updateformer(              # Paper Label: Transformer update
+                x,
+                virtual2point_mask=virtual2point_mask,
+                point2virtual_mask=point2virtual_mask,
+                add_space_attn=add_space_attn,
+            )
 
             delta_coords = delta[..., :D_coords].permute(0, 2, 1, 3)
             delta_vis = delta[..., D_coords].permute(0, 2, 1)
@@ -370,4 +360,4 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             )
         else:
             train_data = None
-        return coord_preds[-1][..., :2], vis_preds[-1], confidence_preds[-1], train_data, attn_weights
+        return coord_preds[-1][..., :2], vis_preds[-1], confidence_preds[-1], train_data
