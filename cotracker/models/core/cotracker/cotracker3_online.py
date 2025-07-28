@@ -254,7 +254,7 @@ class CoTrackerThreeOnline(CoTrackerThreeBase):
             x = x + self.interpolate_time_embed(x, S)
             x = x.view(B, N, S, -1)  # (B N) T D -> B N T D
 
-            delta = self.updateformer(x, add_space_attn=add_space_attn, return_weights=True)
+            delta = self.updateformer(x, add_space_attn=add_space_attn)
 
             delta_coords = delta[..., :2].permute(0, 2, 1, 3)
             delta_vis = delta[..., 2:3].permute(0, 2, 1, 3)

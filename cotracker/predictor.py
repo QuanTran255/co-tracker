@@ -57,7 +57,6 @@ class CoTrackerPredictor(torch.nn.Module):
         add_support_grid: bool = True,
         query_support: bool = False,
         mask_support: bool = False,
-        return_weights=False,
         build_mask=False
     ):
         if queries is None and grid_size == 0:
@@ -77,7 +76,6 @@ class CoTrackerPredictor(torch.nn.Module):
                 mask_support=mask_support,
                 grid_query_frame=grid_query_frame,
                 backward_tracking=backward_tracking,
-                return_weights=return_weights,
                 build_mask=build_mask
             )
 
@@ -124,7 +122,6 @@ class CoTrackerPredictor(torch.nn.Module):
         mask_support=False,
         grid_query_frame=0,
         backward_tracking=False,
-        return_weights=False,
         build_mask=False
     ):
         added_support = 0
@@ -230,7 +227,7 @@ class CoTrackerPredictor(torch.nn.Module):
         )
         return tracks, visibilities
 
-    def _compute_backward_tracks(self, video, queries, tracks, visibilities, return_weights=False, build_mask=False):
+    def _compute_backward_tracks(self, video, queries, tracks, visibilities, build_mask=False):
         inv_video = video.flip(1).clone()
         inv_queries = queries.clone()
         inv_queries[:, :, 0] = inv_video.shape[1] - inv_queries[:, :, 0] - 1

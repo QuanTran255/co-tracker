@@ -480,7 +480,7 @@ class EfficientUpdateFormer(nn.Module):
 
         self.apply(_basic_init)
 
-    def forward(self, input_tensor, virtual2point_mask=None, point2virtual_mask=None, add_space_attn=True, return_weights=False):
+    def forward(self, input_tensor, virtual2point_mask=None, point2virtual_mask=None, add_space_attn=True):
         tokens = self.input_transform(input_tensor)
 
         B, _, T, _ = tokens.shape
@@ -507,7 +507,7 @@ class EfficientUpdateFormer(nn.Module):
                 virtual_tokens = space_tokens[:, N - self.num_virtual_tracks :]     # point_tokens shape = (B*T), N_virtual, C
 
                 # Cross Attn
-                virtual_tokens = self.space_virtual2point_blocks[j](virtual_tokens, point_tokens, mask=virtual2point_mask, return_weights=False)
+                virtual_tokens = self.space_virtual2point_blocks[j](virtual_tokens, point_tokens, mask=virtual2point_mask)
                 
                 # Self Attn
                 virtual_tokens = self.space_virtual_blocks[j](virtual_tokens)
@@ -554,7 +554,7 @@ class CrossAttnBlock(nn.Module):
             drop=0,
         )
 
-    def forward(self, x, context, mask=None, return_weights=False):
+    def forward(self, x, context, mask=None):
         attn_bias = None
         if mask is not None:
             if len(mask.shape)==4:
@@ -577,7 +577,6 @@ class CrossAttnBlock(nn.Module):
             self.norm1(x),
             context=self.norm_context(context),
             attn_bias=attn_bias,
-            return_weights=False,
         )
 
         x = x + attn_out

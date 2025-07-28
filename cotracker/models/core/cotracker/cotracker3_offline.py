@@ -130,7 +130,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         is_train=False,
         add_space_attn=True,
         fmaps_chunk_size=200,
-        return_weights=False,
         build_mask=False
     ):
         """Predict tracks

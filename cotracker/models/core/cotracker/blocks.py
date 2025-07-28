@@ -376,7 +376,7 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias=qkv_bias)
         self.to_out = nn.Linear(inner_dim, query_dim)
 
-    def forward(self, x, context=None, attn_bias=None, return_weights=False):
+    def forward(self, x, context=None, attn_bias=None):
         '''
         x: query tensor (B, N1, C)
             B: batch size
@@ -431,7 +431,7 @@ class AttnBlock(nn.Module):
             drop=0,
         )
 
-    def forward(self, x, mask=None, return_weights=False):
+    def forward(self, x, mask=None):
         attn_bias = mask
         if mask is not None:
             mask = (
@@ -441,6 +441,6 @@ class AttnBlock(nn.Module):
             )
             max_neg_value = -torch.finfo(x.dtype).max
             attn_bias = (~mask) * max_neg_value
-        x = x + self.attn(self.norm1(x), attn_bias=attn_bias, return_weights = return_weights)
+        x = x + self.attn(self.norm1(x), attn_bias=attn_bias)
         x = x + self.mlp(self.norm2(x))
         return x
