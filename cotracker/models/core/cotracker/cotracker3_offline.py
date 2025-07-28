@@ -86,7 +86,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
     def __init__(self, **args):
         super(CoTrackerThreeOffline, self).__init__(**args)
         
-    def _build_mask(self, video, queries, num_attend=6):
+    def _build_mask(self, video, queries, num_attend=10):
         '''
         video: tensor with shape B, T, C, H, W
         queries: tensor with shape B, N, 3
@@ -104,6 +104,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             # if label != 0:      # Exclude point label 0
             filtered_labels = self.point_labels == label
             # filtered_labels = filtered_labels*2-1       # Range between -1 and 1
+            filtered_labels = filtered_labels.to(device)  # Convert to device
             
             # Add padding for the grid support query points if there are any
             padding = torch.zeros(max(N - filtered_labels.shape[0], 0), dtype=torch.bool).to(device)
@@ -165,13 +166,14 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         # queries = B N 3
         # coords_init = B T N 2
         # vis_init = B T N 1
-        if build_mask:
-            squish_queries = queries.reshape(B*N, 3)  # [B*N, 3]
-            
-            squish_queries, self.point_labels = self.sam.build_labels(video, squish_queries)
         
-            queries = squish_queries.reshape(B, N, 3).to(device)  # [B, N, 3]
-            self.point_labels = self.point_labels.to(device)  # [B, N]
+        # if build_mask:
+        #     squish_queries = queries.reshape(B*N, 3)  # [B*N, 3]
+            
+        #     squish_queries, self.point_labels = self.sam.add_support_boundaries(video, squish_queries)
+        
+        #     queries = squish_queries.reshape(B, N, 3).to(device)  # [B, N, 3]
+        #     self.point_labels = self.point_labels.to(device)  # [B, N]
         assert T >= 1  # A tracker needs at least two frames to track something
 
         video = 2 * (video / 255.0) - 1.0
