@@ -86,7 +86,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
     def __init__(self, **args):
         super(CoTrackerThreeOffline, self).__init__(**args)
         
-    def _build_mask(self, video, queries, num_attend=10):
+    def _build_mask(self, video, queries, num_attend=5):
         '''
         video: tensor with shape B, T, C, H, W
         queries: tensor with shape B, N, 3
@@ -99,7 +99,6 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         
         # mask = torch.tensor([[]], dtype=torch.bool).to(device)
         mask_rows = []
-        print("point_labels_set", point_labels_set)
         for label in point_labels_set:
             # if label != 0:      # Exclude point label 0
             filtered_labels = self.point_labels == label

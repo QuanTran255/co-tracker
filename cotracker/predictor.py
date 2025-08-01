@@ -171,7 +171,6 @@ class CoTrackerPredictor(torch.nn.Module):
             
         if add_support_grid:
             _,N,_ = queries.shape
-            print("CoTrackerPredictor queries before support", queries, "added_support:", added_support)
             grid_pts = get_points_on_a_grid(
                 self.support_grid_size, self.interp_shape, device=video.device
             )
@@ -181,13 +180,10 @@ class CoTrackerPredictor(torch.nn.Module):
             grid_pts = grid_pts.repeat(B, 1, 1)
             queries = torch.cat([queries, grid_pts], dim=1)
             added_support += queries.shape[1] - N
-            print("CoTrackerPredictor queries with support", queries, "added_support:", added_support)
        
-        # print("CoTrackerPredictor queries with support", queries)
         tracks, visibilities, *_ = self.model.forward(
             video=video, queries=queries, iters=6, build_mask=build_mask
         )
-        print("tracks2 trace", tracks)
         if backward_tracking:
             tracks, visibilities, _ = self._compute_backward_tracks(
                 video, queries, tracks, visibilities, build_mask=build_mask
@@ -195,13 +191,9 @@ class CoTrackerPredictor(torch.nn.Module):
             if add_support_grid:
                 queries[:, -self.support_grid_size**2 :, 0] = T - 1
         if added_support > 0:
-            print("Added support points:", added_support)
-            print("tracks shape:", tracks.shape)
             if queries is not None:
-                print("tracks before remove support:", tracks)
                 tracks = tracks[:, :, : -added_support]
                 visibilities = visibilities[:, :, : -added_support]
-                print("tracks after remove support:", tracks)
             else:
                 tracks = tracks[:, :, : -(self.support_grid_size**2)]
                 visibilities = visibilities[:, :, : -self.support_grid_size**2]
