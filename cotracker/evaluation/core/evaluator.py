@@ -185,9 +185,10 @@ class Evaluator:
         step: Optional[int] = 0,
     ):
         metrics = {}
-
+        import datetime
+        video_dir = os.path.join(self.exp_dir, f"videos_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
         vis = Visualizer(
-            save_dir=self.exp_dir,
+            save_dir=video_dir,
             fps=7,
         )
 
@@ -252,7 +253,8 @@ class Evaluator:
                     )  # B T N 2,  B T N 1
                 pred_tracks = (pred_tracks, pred_visibility)
             else:
-                pred_tracks = model(sample.video, queries)
+                pred_tracks = model(sample.video, queries, segmentation=sample.segmentation)
+                print("forward done")
 
             if "strided" in dataset_name:
                 inv_video = sample.video.flip(1).clone()

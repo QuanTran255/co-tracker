@@ -127,6 +127,13 @@ class CoTrackerPredictor(torch.nn.Module):
         added_support = 0
         
         B, T, C, H, W = video.shape
+        
+        labels = None 
+        if build_mask:
+            queries, labels, num_add_points = self.sam.add_support_boundaries(video, queries, labeled=True)
+            added_support += num_add_points
+            
+        print("labels", labels.max())
 
         video = video.reshape(B * T, C, H, W)
         video = F.interpolate(
@@ -180,9 +187,11 @@ class CoTrackerPredictor(torch.nn.Module):
             grid_pts = grid_pts.repeat(B, 1, 1)
             queries = torch.cat([queries, grid_pts], dim=1)
             added_support += queries.shape[1] - N
+            
+        
        
         tracks, visibilities, *_ = self.model.forward(
-            video=video, queries=queries, iters=6, build_mask=build_mask
+            video=video, queries=queries, iters=6, build_mask=build_mask, labels=labels
         )
         if backward_tracking:
             tracks, visibilities, _ = self._compute_backward_tracks(

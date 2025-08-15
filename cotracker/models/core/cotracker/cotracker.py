@@ -569,7 +569,7 @@ class CrossAttnBlock(nn.Module):
                 )
 
             max_neg_value = -torch.finfo(x.dtype).max
-            attn_bias = (~mask) * max_neg_value
+            attn_bias = (mask) * 10
             
         attn_out = self.cross_attn(
             self.norm1(x),

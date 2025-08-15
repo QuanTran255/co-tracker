@@ -191,6 +191,7 @@ class TapVidDataset(torch.utils.data.Dataset):
             video_name = self.video_names[index]
         else:
             video_name = index
+        print("tapvid video name", video_name)
         video = self.points_dataset[video_name]
         frames = video["video"]
 

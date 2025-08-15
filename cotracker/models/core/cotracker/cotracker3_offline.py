@@ -86,29 +86,70 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
     def __init__(self, **args):
         super(CoTrackerThreeOffline, self).__init__(**args)
         
-    def _build_mask(self, video, queries, num_attend=5):
+    def _build_mask_multiframes(self, video, queries, labels, num_attends=10):
+        '''
+        queries: Tensor of shape B, N, 3
+        '''
+        B, N, D = queries.shape
+        device = queries.device
+        queries = torch.reshape(queries, B*N, D)
+        _,T, *_ = video.shape
+        
+        labels_set = set(l.item() for l in labels)
+        for l in labels:
+            label_indices = labels==l
+            cur_label = labels[label_indices]
+            cur_queries_label = queries[label_indices]
+            
+            for t in range(T):
+                mask_row = []
+                queries_frame_t_index = cur_queries_label[:,0]==t
+                queries_frame_t = cur_queries_label[queries_frame_t_index]
+                
+                padding_zeroes = torch.zeros(max(N - label_indices.shape[0], 0), dtype=torch.bool).to(device)
+                padded = torch.cat([label_indices, padding_zeroes], dim=0).int()
+                
+                for _ in range(num_attends):
+                    mask_row.append(padded)
+                    
+                mask_row = torch.stack(mask_row, dim=0)
+                # B*T, N, 384 -> B*T, 64, 384
+                
+                # mask_atten: B*T, num_heads, 64, N
+        
+        # for each frame, get the queries of frame t, and build a mask with labels of the queries for that frame
+                
+        
+        
+    def _build_mask(self, video, queries, labels, num_attend=7):
         '''
         video: tensor with shape B, T, C, H, W
         queries: tensor with shape B, N, 3
         '''
         # Build mask into shape of B*T, num_heads, N_virtual, N_point 
+        
         B, T, C, H, W = video.shape
         _, N, _ = queries.shape
-        point_labels_set = set(t.item() for t in self.point_labels)   # Get unique point labels (0 = points, 1-n = lines)
+        new_labels = set()
+        for l in labels:
+            if l is not None:
+                new_labels.add(l)
+        point_labels_set = set(l.item() for l in new_labels)   # Get unique point labels (0 = points, 1-n = lines)
         device = queries.device
-        
+        # print("point_labels_setbels", point_labels_set)
         # mask = torch.tensor([[]], dtype=torch.bool).to(device)
         mask_rows = []
         for label in point_labels_set:
-            # if label != 0:      # Exclude point label 0
-            filtered_labels = self.point_labels == label
-            # filtered_labels = filtered_labels*2-1       # Range between -1 and 1
-            filtered_labels = filtered_labels.to(device)  # Convert to device
+            filtered_labels = torch.tensor([], dtype=torch.bool).to(device)
+            if label != 0:      # Exclude point label 0
+                filtered_labels = labels == label
+                filtered_labels = filtered_labels.to(device)  # Convert to device
             
             # Add padding for the grid support query points if there are any
             padding = torch.zeros(max(N - filtered_labels.shape[0], 0), dtype=torch.bool).to(device)
-            padded = torch.cat([filtered_labels, padding], dim=0)      # filtered_labels shape: (N,)
+            padded = torch.cat([filtered_labels, padding], dim=0).squeeze(-1)      # filtered_labels shape: (N,)
             # mask = torch.cat([mask, filtered_labels], dim=0)
+            # print("padded shape", padded.shape)
             for _ in range(num_attend):
                 mask_rows.append(padded)
                 
@@ -116,6 +157,9 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         # mask = torch.unsqueeze(mask, 0)
         mask = torch.stack(mask_rows, dim=0)
         padding = torch.zeros((64-len(point_labels_set)*num_attend, mask.shape[1]), dtype=torch.bool).to(device)        # padding shape = (64-queries, queries)
+        
+        # print("offline mask shape", mask.shape)
+        # print("offline padding shape", padding.shape)
         mask = torch.cat([mask, padding], dim=0)
         
         virtual2point_mask = mask.repeat(B*T, self.num_heads, 1, 1)
@@ -126,6 +170,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         self,
         video,
         queries,
+        labels=None,
         iters=4,
         is_train=False,
         add_space_attn=True,
@@ -148,6 +193,8 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 - mask (BoolTensor[B, T, N]):
         """
         print("CoTrackerThreeOffline forward")
+        # print(queries)
+        # assert False, "STOP HERE"
         virtual2point_mask, point2virtual_mask = None, None
         B, T, C, H, W = video.shape
         device = queries.device
@@ -312,7 +359,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             x = x + self.interpolate_time_embed(x, T)
             x = x.view(B, N, T, -1)  # (B N) T D -> B N T D
             if build_mask:
-                virtual2point_mask, point2virtual_mask = self._build_mask(video, queries)
+                virtual2point_mask, point2virtual_mask = self._build_mask(video, queries, labels)
             
             delta = self.updateformer(              # Paper Label: Transformer update
                 x,
