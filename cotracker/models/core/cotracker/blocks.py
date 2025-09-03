@@ -400,7 +400,7 @@ class Attention(nn.Module):
        
         # attn_bias=None
         if attn_bias is not None:
-            sim = sim + attn_bias
+            sim = sim + attn_bias*(sim.max().detach())*1
         attn = sim.softmax(dim=-1)      # attn.shape = (B, h, N1, N2)
         x = (attn @ v).transpose(1, 2).reshape(B, N1, C)        # x.shape = (B, N1, C)
         return self.to_out(x)

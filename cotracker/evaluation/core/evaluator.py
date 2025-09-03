@@ -183,6 +183,9 @@ class Evaluator:
         visualize_every: int = 50,
         writer: Optional[SummaryWriter] = None,
         step: Optional[int] = 0,
+        num_attend: int = 8,
+        alpha: float = 0.5,
+        beta: float = 0.5,
     ):
         metrics = {}
         import datetime
@@ -253,8 +256,7 @@ class Evaluator:
                     )  # B T N 2,  B T N 1
                 pred_tracks = (pred_tracks, pred_visibility)
             else:
-                pred_tracks = model(sample.video, queries, segmentation=sample.segmentation)
-                print("forward done")
+                pred_tracks = model(sample.video, queries, segmentation=sample.segmentation, num_attend=num_attend, alpha=alpha, beta=beta)
 
             if "strided" in dataset_name:
                 inv_video = sample.video.flip(1).clone()

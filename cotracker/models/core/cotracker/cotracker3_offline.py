@@ -121,50 +121,81 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
                 
         
         
-    def _build_mask(self, video, queries, labels, num_attend=7):
+    def _build_mask(self, video, queries, labels, num_attend=8, alpha=1, beta=0.5, visualize=False):
         '''
         video: tensor with shape B, T, C, H, W
         queries: tensor with shape B, N, 3
+        labels: tensor with shape N
         '''
         # Build mask into shape of B*T, num_heads, N_virtual, N_point 
         
         B, T, C, H, W = video.shape
         _, N, _ = queries.shape
+        device = queries.device
+        
+        # Create a set of unique labels
         new_labels = set()
         for l in labels:
             if l is not None:
                 new_labels.add(l)
         point_labels_set = set(l.item() for l in new_labels)   # Get unique point labels (0 = points, 1-n = lines)
-        device = queries.device
-        # print("point_labels_setbels", point_labels_set)
-        # mask = torch.tensor([[]], dtype=torch.bool).to(device)
+        
+        # Build the attention bias mask
         mask_rows = []
         for label in point_labels_set:
+            # print("Building mask for label", label)
             filtered_labels = torch.tensor([], dtype=torch.bool).to(device)
-            if label != 0:      # Exclude point label 0
-                filtered_labels = labels == label
-                filtered_labels = filtered_labels.to(device)  # Convert to device
+            # if label != 0:      # Label 0 is for background points
+            positive_labels = (labels == label)           # A tensor of shape (N,) with True for points with the current label
+            negative_labels = (labels != label)*-alpha    # A tensor of shape (N,) with True for points without the current label
+            filtered_labels = positive_labels + negative_labels
+            filtered_labels = filtered_labels.to(device)  # Convert to device
             
-            # Add padding for the grid support query points if there are any
-            padding = torch.zeros(max(N - filtered_labels.shape[0], 0), dtype=torch.bool).to(device)
+            # Add padding to the rest of the points without a label
+            padding = torch.full((max((N - filtered_labels.shape[0]), 0), 1), -beta, dtype=torch.float).to(device).squeeze(-1)
             padded = torch.cat([filtered_labels, padding], dim=0).squeeze(-1)      # filtered_labels shape: (N,)
+            
             # mask = torch.cat([mask, filtered_labels], dim=0)
             # print("padded shape", padded.shape)
             for _ in range(num_attend):
                 mask_rows.append(padded)
-                
+        # print(len(mask_rows), "rows in the mask")
                 
         # mask = torch.unsqueeze(mask, 0)
         mask = torch.stack(mask_rows, dim=0)
-        padding = torch.zeros((64-len(point_labels_set)*num_attend, mask.shape[1]), dtype=torch.bool).to(device)        # padding shape = (64-queries, queries)
-        
+        # print("mask shape", mask.shape)
+        # padding = torch.zeros((64-len(point_labels_set)*num_attend, mask.shape[1]), dtype=torch.bool).to(device)        # padding shape = (64-queries, queries)
+        padding = torch.full((64-len(point_labels_set)*num_attend, mask.shape[1]), -beta, dtype=torch.float).to(device)
         # print("offline mask shape", mask.shape)
         # print("offline padding shape", padding.shape)
         mask = torch.cat([mask, padding], dim=0)
+        if visualize:
+            numpy_array = mask.cpu().numpy()
+            self._visualize_mask(numpy_array)
         
+        # TODO: plt to visualize the mask for sanity check
+        print("offline mask max", torch.max(mask))
+        print("offline mask min", torch.min(mask))
         virtual2point_mask = mask.repeat(B*T, self.num_heads, 1, 1)
         point2virtual_mask = torch.transpose(virtual2point_mask, 2, 3)
         return virtual2point_mask, point2virtual_mask
+    
+    def _visualize_mask(self, mask):
+        import matplotlib.pyplot as plt
+        import os
+        fig, ax = plt.subplots()
+
+        # Create a heatmap
+        cax = ax.matshow(mask, cmap='viridis')
+
+        fig.colorbar(cax)
+        ax.set_title('Colored Matrix with Values')
+        ax.set_xlabel('Column')
+        ax.set_ylabel('Row')
+        
+        os.mkdir('./output_masks', exist_ok=True)
+        plt.savefig(f'./output_masks/output_image_{mask.shape[0]}_{mask.shape[1]}.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
 
     def forward(
         self,
@@ -175,7 +206,10 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
         is_train=False,
         add_space_attn=True,
         fmaps_chunk_size=200,
-        build_mask=False
+        build_mask=False,
+        num_attend=8,
+        alpha=0.5,
+        beta=0.5
     ):
         """Predict tracks
 
@@ -359,7 +393,7 @@ class CoTrackerThreeOffline(CoTrackerThreeBase):
             x = x + self.interpolate_time_embed(x, T)
             x = x.view(B, N, T, -1)  # (B N) T D -> B N T D
             if build_mask:
-                virtual2point_mask, point2virtual_mask = self._build_mask(video, queries, labels)
+                virtual2point_mask, point2virtual_mask = self._build_mask(video, queries, labels, num_attend=num_attend, alpha=alpha, beta=beta)
             
             delta = self.updateformer(              # Paper Label: Transformer update
                 x,
